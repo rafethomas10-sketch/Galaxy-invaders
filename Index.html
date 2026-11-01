@@ -1,0 +1,508 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Galaxy Invaders Forever</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#05091c;color:white;font-family:Arial;overflow:hidden;touch-action:manipulation}
+button{background:#102d59;color:white;border:2px solid #38dfff;border-radius:13px;padding:13px 10px;font-size:15px;font-weight:bold;cursor:pointer;touch-action:manipulation}
+button:active{background:#1766a9;transform:scale(.97)}
+button:disabled{opacity:.35}
+#app{height:100dvh;display:flex;align-items:center;justify-content:center;padding:10px;background:radial-gradient(#172b59,#05091c 75%)}
+.screen{width:min(550px,100%);max-height:96dvh;overflow:auto;background:#08162eee;border:2px solid #238cff;border-radius:20px;padding:15px;text-align:center;box-shadow:0 0 25px #087dff55}
+h1{font-size:clamp(27px,7vw,42px);color:#55eaff;text-shadow:0 0 15px #008cff;margin:8px}
+h2{color:#55eaff}
+p{color:#d3e7ff}
+.hidden{display:none!important}
+#menuButtons{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+#menuButtons button:first-child{grid-column:span 2;background:#087dff}
+#panelContent{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:18px 0}
+.item{background:#10264a;border:1px solid #2879b7;border-radius:12px;padding:12px;min-height:65px}
+.item button{margin-top:8px;width:100%}
+#game{width:min(600px,100%);text-align:center}
+#canvas{display:block;width:100%;height:auto;aspect-ratio:4/5;background:#03091d;border:2px solid #278bff;border-radius:12px;touch-action:none}
+#hud{display:flex;justify-content:space-around;gap:5px;flex-wrap:wrap;font-size:14px;margin:8px 0}
+#controls{display:grid;grid-template-columns:1fr 1fr 1.5fr;gap:8px;margin-top:9px}
+#controls button{height:65px;font-size:18px;user-select:none;-webkit-user-select:none}
+#fire{background:#a51d65;border-color:#ff61b8}
+#gameActions{display:flex;gap:8px;margin-top:8px}
+#gameActions button{flex:1}
+.small{font-size:12px;color:#9ab7dc}
+#message{min-height:24px;color:#ffe47c}
+</style>
+</head>
+<body>
+<div id="app">
+
+<section id="menu" class="screen">
+<h1>🚀 GALAXY INVADERS</h1>
+<p>Defend the galaxy. Destroy the aliens. Become a legend!</p>
+<div id="hud">
+<span>🪙 Coins: <b id="menuCoins">0</b></span>
+<span>⭐ Rank: <b id="menuRank">Bronze Pilot</b></span>
+</div>
+<div id="menuButtons">
+<button data-action="play">▶ PLAY GAME</button>
+<button data-panel="garage">🚀 GARAGE</button>
+<button data-panel="planets">🌍 PLANETS</button>
+<button data-panel="pets">🐾 PETS</button>
+<button data-panel="missions">📜 MISSIONS</button>
+<button data-panel="achievements">🏆 ACHIEVEMENTS</button>
+<button data-panel="collection">👾 ALIEN BOOK</button>
+<button data-panel="settings">⚙ SETTINGS</button>
+</div>
+<p class="small">Your progress saves automatically on this device.</p>
+</section>
+
+<section id="panel" class="screen hidden">
+<h1 id="panelTitle">MENU</h1>
+<div id="panelContent"></div>
+<p id="message"></p>
+<button data-action="home">⬅ BACK TO MAIN MENU</button>
+</section>
+
+<section id="game" class="hidden">
+<h2>🚀 GALAXY INVADERS</h2>
+<div id="hud">
+<span>⭐ Score: <b id="score">0</b></span>
+<span>❤️ Lives: <b id="lives">3</b></span>
+<span>🪙 Coins: <b id="coins">0</b></span>
+<span>🌌 Wave: <b id="wave">1</b></span>
+</div>
+<canvas id="canvas" width="480" height="600"></canvas>
+<div id="controls">
+<button id="left">◀ LEFT</button>
+<button id="right">RIGHT ▶</button>
+<button id="fire">🔥 SHOOT</button>
+</div>
+<div id="gameActions">
+<button data-action="pause">⏸ PAUSE</button>
+<button data-action="home">🏠 MENU</button>
+</div>
+<p class="small">Hold the buttons to move and shoot!</p>
+</section>
+
+</div>
+
+<script>
+"use strict";
+
+/* ---------- SAVE DATA ---------- */
+const defaults={
+ coins:0,score:0,rank:"Bronze Pilot",
+ ship:0,ships:["Blue Fighter"],planet:1,
+ pets:[],aliens:0,bosses:0,upgrades:0,
+ music:true,sound:true,missionClaimed:false
+};
+let data;
+try{
+ data={...defaults,...JSON.parse(localStorage.getItem("galaxySave")||"{}")};
+}catch(e){data={...defaults};}
+
+function save(){
+ try{localStorage.setItem("galaxySave",JSON.stringify(data));}catch(e){}
+ updateMenu();
+}
+function updateMenu(){
+ document.getElementById("menuCoins").textContent=data.coins;
+ document.getElementById("menuRank").textContent=data.rank;
+}
+
+/* ---------- SCREEN NAVIGATION ---------- */
+const menu=document.getElementById("menu");
+const panel=document.getElementById("panel");
+const game=document.getElementById("game");
+const content=document.getElementById("panelContent");
+const title=document.getElementById("panelTitle");
+const message=document.getElementById("message");
+
+function showScreen(which){
+ menu.classList.toggle("hidden",which!=="menu");
+ panel.classList.toggle("hidden",which!=="panel");
+ game.classList.toggle("hidden",which!=="game");
+}
+
+function showMessage(t){message.textContent=t;}
+
+function openPanel(name){
+ stopLoop();
+ const pages={
+ garage:{
+  title:"🚀 SPACE GARAGE",
+  html:`
+   <div class="item">🔵 Blue Fighter<br>Free starter ship</div>
+   <div class="item">🟣 Purple Fighter<br>250 coins</div>
+   <div class="item">🟢 Green Fighter<br>500 coins</div>
+   <div class="item">🔴 Red Fighter<br>1000 coins</div>
+   <div class="item">⚡ Speed upgrade<br>100 coins</div>
+   <div class="item">💥 Laser upgrade<br>100 coins</div>
+   <button data-action="ship1">BUY PURPLE</button>
+   <button data-action="ship2">BUY GREEN</button>
+   <button data-action="ship3">BUY RED</button>
+   <button data-action="upgrade">UPGRADE SHIP</button>
+   <button data-action="starter">USE STARTER</button>`
+ },
+ planets:{
+  title:"🌍 GALAXY MAP",
+  html:`
+   <div class="item">🌎 Planet 1<br>Earth Orbit<br>Unlocked</div>
+   <div class="item">🔥 Planet 2<br>Fire World<br>${data.planet>=2?"Unlocked":"Locked"}</div>
+   <div class="item">❄️ Planet 3<br>Ice World<br>${data.planet>=3?"Unlocked":"Locked"}</div>
+   <div class="item">🌑 Planet 4<br>Dark Galaxy<br>${data.planet>=4?"Unlocked":"Locked"}</div>
+   <button data-action="planet1">PLAY EARTH</button>
+   <button data-action="planet2" ${data.planet<2?"disabled":""}>PLAY FIRE</button>
+   <button data-action="planet3" ${data.planet<3?"disabled":""}>PLAY ICE</button>
+   <button data-action="planet4" ${data.planet<4?"disabled":""}>PLAY DARK</button>`
+ },
+ pets:{
+  title:"🐾 PET COLLECTION",
+  html:`
+   <div class="item">🐣 Space Baby<br>Common pet</div>
+   <div class="item">🦎 Galaxy Lizard<br>Rare pet</div>
+   <div class="item">🐉 Cosmic Dragon<br>Legendary pet</div>
+   <p>Pets give you bonus coins!</p>
+   <button data-action="egg">🥚 BUY PET EGG - 100 COINS</button>
+   <button data-action="viewpets">VIEW MY PETS</button>
+   <div class="item">Pets owned: ${data.pets.length}</div>`
+ },
+ missions:{
+  title:"📜 SPACE MISSIONS",
+  html:`
+   <div class="item">Destroy 10 aliens<br>${Math.min(data.aliens,10)}/10</div>
+   <div class="item">Earn 100 coins<br>${Math.min(data.coins,100)}/100</div>
+   <div class="item">Destroy 25 aliens<br>${Math.min(data.aliens,25)}/25</div>
+   <button data-action="mission">CLAIM 50 COINS</button>`
+ },
+ achievements:{
+  title:"🏆 ACHIEVEMENTS",
+  html:`
+   <div class="item">${data.aliens>=10?"✅":"🔒"} Alien Hunter<br>Destroy 10 aliens</div>
+   <div class="item">${data.aliens>=100?"✅":"🔒"} Alien Destroyer<br>Destroy 100 aliens</div>
+   <div class="item">${data.score>=1000?"✅":"🔒"} Score Master<br>Reach 1000 points</div>
+   <div class="item">${data.upgrades>=1?"✅":"🔒"} Mechanic<br>Buy an upgrade</div>
+   <div class="item">${data.bosses>=1?"✅":"🔒"} Boss Slayer<br>Defeat a boss</div>`
+ },
+ collection:{
+  title:"👾 ALIEN BOOK",
+  html:`
+   <div class="item">👾 Basic Invader<br>Common alien</div>
+   <div class="item">🛸 Fast Invader<br>Quick alien</div>
+   <div class="item">💀 Galaxy Boss<br>Giant enemy</div>
+   <p>Aliens destroyed: ${data.aliens}</p>`
+ },
+ settings:{
+  title:"⚙ SETTINGS",
+  html:`
+   <div class="item">Music: ${data.music?"ON":"OFF"}</div>
+   <button data-action="music">TOGGLE MUSIC</button>
+   <div class="item">Sound: ${data.sound?"ON":"OFF"}</div>
+   <button data-action="sound">TOGGLE SOUND</button>
+   <button data-action="reset">RESET ALL PROGRESS</button>`
+ }
+ };
+ const p=pages[name];
+ if(!p)return;
+ title.textContent=p.title;
+ content.innerHTML=p.html;
+ showMessage("");
+ showScreen("panel");
+}
+function home(){
+ stopLoop();
+ showScreen("menu");
+ updateMenu();
+}
+
+/* ---------- ALL BUTTON ACTIONS ---------- */
+/* One click listener handles both original and newly-created buttons. */
+document.addEventListener("click",function(e){
+ const button=e.target.closest("button");
+ if(!button)return;
+
+ if(button.dataset.panel){
+  openPanel(button.dataset.panel);
+  return;
+ }
+ const action=button.dataset.action;
+ if(!action)return;
+
+ switch(action){
+  case "play":startGame();break;
+  case "home":home();break;
+  case "pause":togglePause();break;
+  case "ship1":buyShip(1);break;
+  case "ship2":buyShip(2);break;
+  case "ship3":buyShip(3);break;
+  case "starter":data.ship=0;save();openPanel("garage");showMessage("Starter ship selected!");break;
+  case "upgrade":upgradeShip();break;
+  case "planet1":choosePlanet(1);break;
+  case "planet2":choosePlanet(2);break;
+  case "planet3":choosePlanet(3);break;
+  case "planet4":choosePlanet(4);break;
+  case "egg":buyEgg();break;
+  case "viewpets":showMessage(data.pets.length?data.pets.join(", "):"You haven't hatched any pets yet!");break;
+  case "mission":claimMission();break;
+  case "music":data.music=!data.music;save();openPanel("settings");showMessage("Music setting changed!");break;
+  case "sound":data.sound=!data.sound;save();openPanel("settings");showMessage("Sound setting changed!");break;
+  case "reset":
+   if(confirm("Reset all your progress?")){
+    localStorage.removeItem("galaxySave");location.reload();
+   }
+   break;
+ }
+});
+
+/* ---------- GARAGE / PET / PLANET ACTIONS ---------- */
+function buyShip(n){
+ const names=["","Purple Fighter","Green Fighter","Red Fighter"];
+ const prices=[0,250,500,1000];
+ if(data.ships.includes(names[n])){
+  data.ship=n;
+  save();openPanel("garage");showMessage("Ship selected!");
+ }else if(data.coins>=prices[n]){
+  data.coins-=prices[n];
+  data.ships.push(names[n]);
+  data.ship=n;
+  save();openPanel("garage");showMessage("Ship purchased!");
+ }else showMessage("Not enough coins!");
+}
+function upgradeShip(){
+ if(data.coins<100){showMessage("You need 100 coins!");return;}
+ data.coins-=100;data.upgrades++;save();
+ openPanel("garage");showMessage("Ship upgraded!");
+}
+function choosePlanet(n){
+ if(n>data.planet){showMessage("Planet locked!");return;}
+ data.planet=n;save();startGame();
+}
+function buyEgg(){
+ if(data.coins<100){showMessage("You need 100 coins!");return;}
+ data.coins-=100;
+ const pets=["Space Baby","Galaxy Lizard","Cosmic Dragon"];
+ const pet=pets[Math.floor(Math.random()*pets.length)];
+ data.pets.push(pet);save();
+ openPanel("pets");showMessage("You hatched "+pet+"!");
+}
+function claimMission(){
+ if(data.aliens>=10&&!data.missionClaimed){
+  data.coins+=50;data.missionClaimed=true;save();
+  openPanel("missions");showMessage("50 coins claimed!");
+ }else showMessage("Destroy 10 aliens first, or mission already claimed!");
+}
+
+/* ---------- GAME ---------- */
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+let player={x:220,y:535};
+let aliens=[],shots=[],enemyShots=[];
+let score=0,lives=3,wave=1,frame=0;
+let running=false,paused=false,raf=0;
+let leftDown=false,rightDown=false,fireDown=false;
+let alienDirection=1;
+
+function makeAliens(){
+ aliens=[];
+ const rows=Math.min(3+Math.floor(wave/3),6);
+ for(let r=0;r<rows;r++){
+  for(let c=0;c<8;c++){
+   aliens.push({x:35+c*52,y:45+r*43,w:30,h:25,hp:1});
+  }
+ }
+}
+function updateHud(){
+ document.getElementById("score").textContent=score;
+ document.getElementById("lives").textContent=lives;
+ document.getElementById("coins").textContent=data.coins;
+ document.getElementById("wave").textContent=wave;
+}
+function stopLoop(){
+ if(raf)cancelAnimationFrame(raf);
+ raf=0;
+ running=false;
+}
+function startGame(){
+ stopLoop(); /* Cancel old animation BEFORE starting a new one. */
+ showScreen("game");
+ score=0;lives=3;wave=1;frame=0;
+ player.x=220;shots=[];enemyShots=[];
+ makeAliens();
+ paused=false;running=true;
+ updateHud();
+ draw();
+ raf=requestAnimationFrame(loop);
+}
+function togglePause(){
+ if(!running&&!paused)return;
+ if(paused){
+  paused=false;running=true;
+  raf=requestAnimationFrame(loop);
+ }else{
+  paused=true;running=false;
+  if(raf)cancelAnimationFrame(raf);
+  raf=0;
+  draw();
+  ctx.fillStyle="#ffffff";
+  ctx.font="bold 38px Arial";
+  ctx.textAlign="center";
+  ctx.fillText("PAUSED",240,300);
+ }
+}
+function drawShip(){
+ const colors=["#37eaff","#c16bff","#62ff9b","#ff5151"];
+ ctx.save();
+ ctx.translate(player.x+20,player.y+16);
+ ctx.fillStyle=colors[data.ship]||colors[0];
+ ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=16;
+ ctx.beginPath();
+ ctx.moveTo(0,-18);ctx.lineTo(19,15);
+ ctx.lineTo(0,9);ctx.lineTo(-19,15);
+ ctx.closePath();ctx.fill();
+ ctx.fillStyle="white";ctx.fillRect(-3,-4,6,10);
+ ctx.restore();
+}
+function drawAlien(a){
+ ctx.save();
+ ctx.fillStyle="#75ff70";ctx.shadowColor="#39ff4a";ctx.shadowBlur=10;
+ ctx.fillRect(a.x+5,a.y+4,20,16);
+ ctx.fillRect(a.x,a.y+9,30,9);
+ ctx.fillRect(a.x+3,a.y+20,6,5);
+ ctx.fillRect(a.x+21,a.y+20,6,5);
+ ctx.fillStyle="#071a22";
+ ctx.fillRect(a.x+8,a.y+9,4,5);
+ ctx.fillRect(a.x+19,a.y+9,4,5);
+ ctx.restore();
+}
+function draw(){
+ ctx.clearRect(0,0,480,600);
+ ctx.fillStyle="white";
+ for(let i=0;i<65;i++){
+  const x=(i*83)%480;
+  const y=(i*127+frame*.4)%600;
+  ctx.fillRect(x,y,2,2);
+ }
+ aliens.forEach(drawAlien);
+ ctx.fillStyle="#58eaff";
+ shots.forEach(s=>ctx.fillRect(s.x,s.y,4,13));
+ ctx.fillStyle="#ff5969";
+ enemyShots.forEach(s=>ctx.fillRect(s.x,s.y,5,12));
+ drawShip();
+}
+function playSound(freq,duration){
+ if(!data.sound)return;
+ try{
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return;
+  const ac=new AC();
+  const osc=ac.createOscillator();
+  const gain=ac.createGain();
+  osc.frequency.value=freq;
+  osc.type="square";
+  gain.gain.value=.035;
+  osc.connect(gain);gain.connect(ac.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(.001,ac.currentTime+duration);
+  osc.stop(ac.currentTime+duration);
+  osc.onended=()=>ac.close();
+ }catch(e){}
+}
+function loop(){
+ if(!running||paused)return;
+ frame++;
+ if(leftDown)player.x=Math.max(0,player.x-5);
+ if(rightDown)player.x=Math.min(440,player.x+5);
+ if(fireDown&&frame%10===0){
+  shots.push({x:player.x+18,y:player.y-8});
+  playSound(650,.06);
+ }
+ shots.forEach(s=>s.y-=8);
+ enemyShots.forEach(s=>s.y+=4);
+
+ if(frame%Math.max(25,80-wave*3)===0&&aliens.length){
+  const a=aliens[Math.floor(Math.random()*aliens.length)];
+  enemyShots.push({x:a.x+14,y:a.y+20});
+ }
+ if(frame%2===0){
+  aliens.forEach(a=>a.x+=alienDirection*(1+wave*.12));
+  if(aliens.some(a=>a.x<3||a.x>447)){
+   alienDirection*=-1;
+   aliens.forEach(a=>a.y+=15);
+  }
+ }
+ shots.forEach(s=>{
+  aliens.forEach(a=>{
+   if(a.hp>0&&s.x>a.x&&s.x<a.x+a.w&&s.y>a.y&&s.y<a.y+a.h){
+    a.hp=0;s.y=-20;score+=10;data.aliens++;
+    if(Math.random()<.2)data.coins++;
+    playSound(250,.05);
+   }
+  });
+ });
+ aliens=aliens.filter(a=>a.hp>0);
+ shots=shots.filter(s=>s.y>-20);
+ enemyShots=enemyShots.filter(s=>{
+  if(s.x>player.x&&s.x<player.x+40&&s.y>player.y&&s.y<player.y+32){
+   lives--;playSound(100,.15);return false;
+  }
+  return s.y<610;
+ });
+ if(aliens.some(a=>a.y>player.y-10))lives=0;
+
+ if(aliens.length===0){
+  wave++;makeAliens();data.coins+=10;
+  save();
+ }
+ updateHud();
+ draw();
+
+ if(lives<=0){
+  running=false;raf=0;
+  data.score=Math.max(data.score,score);
+  data.coins+=Math.floor(score/100);
+  data.rank=score>=5000?"Galaxy Legend":
+   score>=2000?"Gold Pilot":
+   score>=500?"Silver Pilot":"Bronze Pilot";
+  save();updateHud();
+  setTimeout(()=>{
+   alert("GAME OVER! Score: "+score+". Bonus coins earned!");
+   home();
+  },100);
+  return;
+ }
+ raf=requestAnimationFrame(loop);
+}
+
+/* ---------- TOUCH CONTROLS ---------- */
+function holdButton(id,set){
+ const el=document.getElementById(id);
+ el.addEventListener("pointerdown",e=>{
+  e.preventDefault();set(true);
+  try{el.setPointerCapture(e.pointerId)}catch(err){}
+ });
+ ["pointerup","pointercancel","lostpointercapture"].forEach(type=>{
+  el.addEventListener(type,e=>{
+   e.preventDefault();set(false);
+  });
+ });
+}
+holdButton("left",v=>leftDown=v);
+holdButton("right",v=>rightDown=v);
+holdButton("fire",v=>fireDown=v);
+
+window.addEventListener("keydown",e=>{
+ if(e.key==="ArrowLeft"||e.key==="a")leftDown=true;
+ if(e.key==="ArrowRight"||e.key==="d")rightDown=true;
+ if(e.key===" "||e.key==="ArrowUp")fireDown=true;
+});
+window.addEventListener("keyup",e=>{
+ if(e.key==="ArrowLeft"||e.key==="a")leftDown=false;
+ if(e.key==="ArrowRight"||e.key==="d")rightDown=false;
+ if(e.key===" "||e.key==="ArrowUp")fireDown=false;
+});
+
+updateMenu();
+</script>
+</body>
+</html>
